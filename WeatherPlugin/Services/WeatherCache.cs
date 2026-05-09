@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using WeatherPlugin.Models;
 
 namespace WeatherPlugin.Services
@@ -38,6 +39,8 @@ namespace WeatherPlugin.Services
 
         public WeatherEntry Get(string icao) =>
             _store.TryGetValue(icao, out var e) ? e : null;
+
+        public IEnumerable<WeatherEntry> GetAll() => _store.Values;
 
         public void Clear() => _store.Clear();
     }

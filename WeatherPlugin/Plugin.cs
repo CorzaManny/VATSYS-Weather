@@ -68,15 +68,17 @@ namespace WeatherPlugin
 
         private static void ShowWindow()
         {
-            if (_window == null || _window.IsDisposed)
-                _window = new WeatherWindow(_cache);
-
             var mainForm = Application.OpenForms["MainForm"];
             if (mainForm == null) return;
 
             try
             {
-                MMI.InvokeOnGUI(delegate () { _window.Show(mainForm); });
+                MMI.InvokeOnGUI(delegate ()
+                {
+                    if (_window == null || _window.IsDisposed)
+                        _window = new WeatherWindow(_cache);
+                    _window.Show(mainForm);
+                });
             }
             catch (Exception ex)
             {
