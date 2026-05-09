@@ -27,9 +27,9 @@ namespace WeatherPlugin.Services
         };
 
         // AWC (Aviation Weather Center) bulk bbox covering Australia
-        // bbox = minLat,minLon,maxLat,maxLon
+        // bbox = minLat,minLon,maxLat,maxLon  — hours=1 so only the latest cycle is returned
         private const string AwcMetarUrl =
-            "https://aviationweather.gov/api/data/metar?bbox=-44,112,-10,155&format=raw&hours=2";
+            "https://aviationweather.gov/api/data/metar?bbox=-44,112,-10,155&format=raw&hours=1";
         private const string AwcTafUrl =
             "https://aviationweather.gov/api/data/taf?bbox=-44,112,-10,155&format=raw&hours=12";
 
@@ -173,7 +173,9 @@ namespace WeatherPlugin.Services
                 var icao = icaoPart.Substring(0, 4).ToUpper();
                 if (!IsIcao(icao)) continue;
 
-                result[icao] = clean;
+                // AWC returns newest-first — keep only the first (latest) report per station
+                if (!result.ContainsKey(icao))
+                    result[icao] = clean;
             }
             return result;
         }

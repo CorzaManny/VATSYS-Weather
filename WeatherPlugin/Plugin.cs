@@ -14,9 +14,11 @@ namespace WeatherPlugin
         public string Name => "AU Weather";
         private static readonly string DisplayName = "AU Weather";
 
-        private static WeatherCache _cache;
+        private static WeatherCache  _cache;
         private static WeatherWindow _window;
+        private static ResultWindow  _resultWindow;
         private static CustomToolStripMenuItem _menuItem;
+
         private System.Timers.Timer _metarTimer;
         private System.Timers.Timer _tafTimer;
 
@@ -26,7 +28,6 @@ namespace WeatherPlugin
             {
                 _cache = new WeatherCache();
 
-                // Add "AU Weather" under the Windows menu
                 _menuItem = new CustomToolStripMenuItem(
                     CustomToolStripMenuItemWindowType.Main,
                     CustomToolStripMenuItemCategory.Windows,
@@ -34,36 +35,22 @@ namespace WeatherPlugin
                 _menuItem.Item.Click += (s, e) => ShowWindow();
                 MMI.AddCustomMenuItem(_menuItem);
 
-                // Immediate bulk fetch on load
-                _ = WeatherService.FetchBulkAsync(_cache)
-                    .ContinueWith(_ => _window?.UpdateStatus());
+                // Background bulk fetch so the cache is warm on first use
+                _ = WeatherService.FetchBulkAsync(_cache);
 
-                // METAR refresh every 10 minutes
-                _metarTimer = new System.Timers.Timer(10 * 60 * 1000) { AutoReset = true };
-                _metarTimer.Elapsed += OnMetarRefresh;
+                // Periodic bulk refresh (keeps cache warm for any new requests)
+                _metarTimer = new System.Timers.Timer(10 * 60_000) { AutoReset = true };
+                _metarTimer.Elapsed += (s, e) => _ = WeatherService.FetchBulkAsync(_cache);
                 _metarTimer.Start();
 
-                // TAF refresh every 30 minutes (TAFs are slower-changing)
-                _tafTimer = new System.Timers.Timer(30 * 60 * 1000) { AutoReset = true };
-                _tafTimer.Elapsed += OnTafRefresh;
+                _tafTimer = new System.Timers.Timer(30 * 60_000) { AutoReset = true };
+                _tafTimer.Elapsed += (s, e) => _ = WeatherService.FetchBulkAsync(_cache);
                 _tafTimer.Start();
             }
             catch (Exception ex)
             {
                 Errors.Add(new Exception("AU Weather failed to start: " + ex.Message), DisplayName);
             }
-        }
-
-        private void OnMetarRefresh(object sender, System.Timers.ElapsedEventArgs e)
-        {
-            _ = WeatherService.FetchBulkAsync(_cache)
-                .ContinueWith(_ => _window?.UpdateStatus());
-        }
-
-        private void OnTafRefresh(object sender, System.Timers.ElapsedEventArgs e)
-        {
-            _ = WeatherService.FetchBulkAsync(_cache)
-                .ContinueWith(_ => _window?.UpdateStatus());
         }
 
         private static void ShowWindow()
@@ -75,9 +62,14 @@ namespace WeatherPlugin
             {
                 MMI.InvokeOnGUI(delegate ()
                 {
+                    if (_resultWindow == null || _resultWindow.IsDisposed)
+                        _resultWindow = new ResultWindow(_cache);
+
                     if (_window == null || _window.IsDisposed)
-                        _window = new WeatherWindow(_cache);
+                        _window = new WeatherWindow(_resultWindow);
+
                     _window.Show(mainForm);
+                    _window.BringToFront();
                 });
             }
             catch (Exception ex)

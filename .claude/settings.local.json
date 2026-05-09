@@ -19,7 +19,16 @@
       "PowerShell(winget install Microsoft.DotNet.SDK.8 --silent --accept-package-agreements --accept-source-agreements)",
       "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\\\\WeatherPlugin\"; dotnet build -c Release 2>&1)",
       "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\\\\WeatherPlugin\"; dotnet build -c Release 2>&1)",
-      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\"; git add WeatherPlugin/; git status)"
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\"; git add WeatherPlugin/; git status)",
+      "PowerShell(& \"C:\\\\Program Files\\\\dotnet\\\\dotnet.exe\" --version 2>&1)",
+      "PowerShell(Get-ChildItem \"$env:APPDATA\\\\vatSys Files\\\\Profiles\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "PowerShell(cmd /c dir \"C:\\\\Users\\\\corey\\\\AppData\\\\Roaming\" 2>&1)",
+      "PowerShell(cmd /c dir \"C:\\\\Users\\\\corey\\\\AppData\\\\Local\" 2>&1)",
+      "PowerShell(cmd /c dir \"C:\\\\Users\\\\corey\\\\AppData\\\\Local\\\\Programs\" 2>&1)",
+      "PowerShell(cmd /c dir \"C:\\\\Program Files \\(x86\\)\\\\vatSys\\\\bin\\\\Plugins\" 2>&1)",
+      "PowerShell(cmd /c dir \"C:\\\\Program Files \\(x86\\)\\\\vatSys\" /s /b 2>&1)",
+      "WebFetch(domain:aviationweather.gov)",
+      "WebFetch(domain:api.weather.bom.gov.au)"
     ]
   }
 }
