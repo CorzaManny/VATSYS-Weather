@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\" -Force -Recurse | Where-Object { -not $_.PSPath.Contains\\('.git'\\) } | Select-Object -First 100 | ForEach-Object { $_.FullName })",
+      "PowerShell(head -50)",
+      "WebSearch",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\\" -Directory | ForEach-Object { Write-Host \"$\\($_.Name\\) - $\\(Get-ChildItem -Path $_.FullName -File -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count\\) files\" })",
+      "WebFetch(domain:virtualairtrafficsystem.com)",
+      "WebFetch(domain:github.com)",
+      "PowerShell(&\"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" -C \"C:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\" log --oneline -5)",
+      "WebFetch(domain:aviation.bom.gov.au)",
+      "WebFetch(domain:www.bom.gov.au)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\\" | Format-Table Name, @{Name='Type'; Expression={if \\($_.PSIsContainer\\) {'Directory'} else {'File'}}})",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\" -Force | Format-Table Name, @{Name='Type'; Expression={if \\($_.PSIsContainer\\) {'Directory'} else {'File'}}})",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "PowerShell(winget --version 2>$null)",
+      "PowerShell(if \\(-not $?\\) { \"winget not available\" })",
+      "PowerShell(winget install Microsoft.DotNet.SDK.8 --accept-package-agreements --accept-source-agreements --silent)",
+      "PowerShell(winget install Microsoft.DotNet.SDK.8 --silent --accept-package-agreements --accept-source-agreements)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\\\\WeatherPlugin\"; dotnet build -c Release 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\\\\WeatherPlugin\"; dotnet build -c Release 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\",\"User\"\\); cd \"c:\\\\Users\\\\corey\\\\Documents\\\\Github\\\\VATSYS-Weather\"; git add WeatherPlugin/; git status)"
+    ]
+  }
+}
