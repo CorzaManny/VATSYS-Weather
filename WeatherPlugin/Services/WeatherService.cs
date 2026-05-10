@@ -15,25 +15,16 @@ namespace WeatherPlugin.Services
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         private const string DisplayName = "AU Weather";
 
-        // BoM aviation text product URLs (Australian METAR/TAF bulletins).
-        // These follow WMO GTS product naming. Fall through to AWC if unavailable.
-        private static readonly string[] BomMetarCandidates = {
-            "http://www.bom.gov.au/fwo/IDY30300.txt",
-            "http://www.bom.gov.au/fwo/IDY30301.txt",
-        };
-        private static readonly string[] BomTafCandidates = {
-            "http://www.bom.gov.au/fwo/IDY40000.txt",
-            "http://www.bom.gov.au/fwo/IDY40001.txt",
-        };
-
-        // AWC (Aviation Weather Center) bulk bbox covering Australia
-        // bbox = minLat,minLon,maxLat,maxLon  — hours=1 so only the latest cycle is returned
+        // AWC (Aviation Weather Center) bulk bbox covering Australia.
+        // bbox = minLat,minLon,maxLat,maxLon — confirmed returning full Australian data.
+        // BoM HTTP feeds (bom.gov.au/fwo/IDY*) have been dead/timing-out since ~2024;
+        // AWC is the reliable replacement for bulk Australian METAR/TAF.
         private const string AwcMetarUrl =
             "https://aviationweather.gov/api/data/metar?bbox=-44,112,-10,155&format=raw&hours=1";
         private const string AwcTafUrl =
             "https://aviationweather.gov/api/data/taf?bbox=-44,112,-10,155&format=raw&hours=12";
 
-        // VATSIM METAR — single-station fallback (real-world data, no auth)
+        // VATSIM METAR — single-station on-demand (real-world data, no auth required)
         private const string VatsimMetarBase = "https://metar.vatsim.net/metar.php?id=";
 
         static WeatherService()
@@ -48,22 +39,6 @@ namespace WeatherPlugin.Services
 
         private static async Task FetchMetarsAsync(WeatherCache cache)
         {
-            // Try BoM first
-            foreach (var url in BomMetarCandidates)
-            {
-                try
-                {
-                    var text = await Http.GetStringAsync(url);
-                    if (!string.IsNullOrWhiteSpace(text) && ContainsIcao(text))
-                    {
-                        ParseAndCacheMetars(text, cache);
-                        return;
-                    }
-                }
-                catch { }
-            }
-
-            // Fall back to AWC
             try
             {
                 var text = await Http.GetStringAsync(AwcMetarUrl);
@@ -77,22 +52,6 @@ namespace WeatherPlugin.Services
 
         private static async Task FetchTafsAsync(WeatherCache cache)
         {
-            // Try BoM first
-            foreach (var url in BomTafCandidates)
-            {
-                try
-                {
-                    var text = await Http.GetStringAsync(url);
-                    if (!string.IsNullOrWhiteSpace(text) && ContainsIcao(text))
-                    {
-                        ParseAndCacheTafs(text, cache);
-                        return;
-                    }
-                }
-                catch { }
-            }
-
-            // Fall back to AWC
             try
             {
                 var text = await Http.GetStringAsync(AwcTafUrl);
@@ -104,14 +63,31 @@ namespace WeatherPlugin.Services
             }
         }
 
-        // Single-station fetch for on-demand lookups (uses VATSIM METAR as fast fallback)
+        // Single-station fetch: tries NAIPS first (if naips.cfg present), falls back to VATSIM + AWC.
         public static async Task FetchStationAsync(string icao, WeatherCache cache)
         {
             icao = icao.ToUpper().Trim();
 
-            // METAR via VATSIM if not cached or stale
-            var entry = cache.Get(icao);
-            if (entry == null || entry.IsMetarStale(15))
+            var entry      = cache.Get(icao);
+            bool metarStale = entry == null || entry.IsMetarStale(15);
+            bool tafStale   = entry == null || entry.IsTafStale(1);
+            if (!metarStale && !tafStale) return;
+
+            // ── Primary: NAIPS SOAP ──────────────────────────────────────────────
+            if (NaipsService.HasCredentials)
+            {
+                try
+                {
+                    var (metar, taf) = await NaipsService.FetchAsync(icao, Http);
+                    if (metar != null) cache.SetMetar(icao, metar);
+                    if (taf   != null) cache.SetTaf(icao, taf);
+                    return;
+                }
+                catch { }
+            }
+
+            // ── Fallback: VATSIM METAR + AWC TAF ────────────────────────────────
+            if (metarStale)
             {
                 try
                 {
@@ -123,9 +99,7 @@ namespace WeatherPlugin.Services
                 catch { }
             }
 
-            // TAF via AWC single-station if not cached or stale
-            entry = cache.Get(icao);
-            if (entry == null || entry.IsTafStale(1))
+            if (tafStale)
             {
                 try
                 {
@@ -221,9 +195,6 @@ namespace WeatherPlugin.Services
             if (!string.IsNullOrWhiteSpace(text))
                 result[icao] = text;
         }
-
-        private static bool ContainsIcao(string text) =>
-            Regex.IsMatch(text, @"\b[A-Z]{4}\b");
 
         private static bool IsIcao(string s) =>
             s.Length == 4 && s.All(char.IsLetter);

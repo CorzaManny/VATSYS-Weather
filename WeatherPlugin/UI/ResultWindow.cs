@@ -12,30 +12,29 @@ namespace WeatherPlugin.UI
 {
     public class ResultWindow : Form
     {
-        // vatSys colours
+        // vatSys chrome: #A0AAAA and relatives
         private static readonly Color ColBg       = Color.FromArgb(160, 170, 170);
-        private static readonly Color ColPanel    = Color.FromArgb(130, 146, 146);
-        private static readonly Color ColBtn      = Color.FromArgb(130, 146, 146);
-        private static readonly Color ColBtnBdr   = Color.FromArgb(80, 90, 90);
-        private static readonly Color ColDetailBg = Color.FromArgb(20, 22, 28);
+        private static readonly Color ColPanel    = Color.FromArgb(148, 158, 158);
+        private static readonly Color ColBtn      = Color.FromArgb(140, 152, 152);
+        private static readonly Color ColBtnBdr   = Color.FromArgb(90,  102, 102);
+        private static readonly Color ColDetailBg = Color.FromArgb(18,  22,  22);
         private static readonly Color ColYellow   = Color.FromArgb(255, 200, 60);
         private static readonly Color ColBlue     = Color.FromArgb(100, 160, 255);
-        private static readonly Color ColGrey     = Color.FromArgb(120, 130, 120);
-        private static readonly Color ColStale    = Color.FromArgb(160, 100, 40);
-        private static readonly Color ColSep      = Color.FromArgb(55, 65, 55);
-        private static readonly Color ColDetailTxt= Color.FromArgb(200, 215, 200);
+        private static readonly Color ColGrey     = Color.FromArgb(110, 130, 125);
+        private static readonly Color ColStale    = Color.FromArgb(170, 110, 40);
+        private static readonly Color ColSep      = Color.FromArgb(50,  62,  58);
+        private static readonly Color ColDetailTxt= Color.FromArgb(195, 215, 205);
 
-        // Flight category colours (standard aviation weather map palette)
-        private static readonly Color ColVfr  = Color.FromArgb(60,  200, 80);
-        private static readonly Color ColMvfr = Color.FromArgb(90,  140, 230);
-        private static readonly Color ColSvfr = Color.FromArgb(255, 140, 0);
-        private static readonly Color ColIfr  = Color.FromArgb(220, 50,  50);
-        private static readonly Color ColLifr = Color.FromArgb(210, 60,  210);
+        // NATO MIL flight category colours (VFR/MVFR/IFR/LIFR — NOAA standard)
+        private static readonly Color ColVfr  = Color.FromArgb(0,   210, 0);    // green
+        private static readonly Color ColMvfr = Color.FromArgb(80,  140, 255);  // blue
+        private static readonly Color ColIfr  = Color.FromArgb(220, 50,  50);   // red
+        private static readonly Color ColLifr = Color.FromArgb(220, 60,  220);  // magenta
 
-        private static readonly Font MonoFont = new Font("Courier New", 9f,  FontStyle.Regular);
-        private static readonly Font MonoBold = new Font("Courier New", 9f,  FontStyle.Bold);
-        private static readonly Font UiFont   = new Font("Arial",       8.5f, FontStyle.Regular);
-        private static readonly Font UiBold   = new Font("Arial",       8.5f, FontStyle.Bold);
+        private static readonly Font MonoFont = new Font("Courier New", 8f,  FontStyle.Regular);
+        private static readonly Font MonoBold = new Font("Courier New", 8f,  FontStyle.Bold);
+        private static readonly Font UiFont   = new Font("Arial",       8f,  FontStyle.Regular);
+        private static readonly Font UiBold   = new Font("Arial",       8f,  FontStyle.Bold);
 
         private const int MetarIntervalMs = 60_000;   // 1 minute
         private const int TafIntervalMs   = 300_000;  // 5 minutes
@@ -72,8 +71,8 @@ namespace WeatherPlugin.UI
         private void BuildUi()
         {
             Text            = "AIS Monitor";
-            Size            = new Size(760, 520);
-            MinimumSize     = new Size(500, 280);
+            Size            = new Size(640, 380);
+            MinimumSize     = new Size(420, 200);
             BackColor       = ColBg;
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
             StartPosition   = FormStartPosition.Manual;
@@ -81,7 +80,7 @@ namespace WeatherPlugin.UI
 
             var toolbar = new Panel
             {
-                Dock = DockStyle.Top, Height = 30, BackColor = ColPanel,
+                Dock = DockStyle.Top, Height = 26, BackColor = ColPanel,
             };
 
             int x = 6, y = 4;
@@ -93,7 +92,7 @@ namespace WeatherPlugin.UI
             _statusLabel = new Label
             {
                 Left = x, Top = y + 4, AutoSize = true,
-                ForeColor = Color.FromArgb(30, 30, 30), Font = UiFont,
+                ForeColor = Color.FromArgb(28, 30, 30), Font = UiFont,
                 Text = "No stations",
             };
             x += 220;
@@ -101,7 +100,7 @@ namespace WeatherPlugin.UI
             _countdownLabel = new Label
             {
                 Left = x, Top = y + 4, AutoSize = true,
-                ForeColor = Color.FromArgb(0, 0, 96), Font = UiBold, Text = "",
+                ForeColor = Color.FromArgb(0, 0, 90), Font = UiBold, Text = "",
             };
 
             toolbar.Controls.AddRange(new Control[] { _refreshNowBtn, _statusLabel, _countdownLabel });
@@ -324,13 +323,27 @@ namespace WeatherPlugin.UI
 
         // ── Flight category helpers ───────────────────────────────────────────
 
+        // Badge colour — VFR still shows green in the header badge.
         private static Color CategoryColor(FlightCategory cat)
         {
             switch (cat)
             {
                 case FlightCategory.VFR:  return ColVfr;
                 case FlightCategory.MVFR: return ColMvfr;
-                case FlightCategory.SVFR: return ColSvfr;
+                case FlightCategory.IFR:  return ColIfr;
+                case FlightCategory.LIFR: return ColLifr;
+                default:                  return ColGrey;
+            }
+        }
+
+        // Per-element colour — VFR elements render in the standard text colour ("white when okay").
+        private static Color ElementColor(FlightCategory? cat)
+        {
+            if (cat == null) return ColDetailTxt;
+            switch (cat)
+            {
+                case FlightCategory.VFR:  return ColDetailTxt;
+                case FlightCategory.MVFR: return ColMvfr;
                 case FlightCategory.IFR:  return ColIfr;
                 case FlightCategory.LIFR: return ColLifr;
                 default:                  return ColGrey;
@@ -343,7 +356,6 @@ namespace WeatherPlugin.UI
             {
                 case FlightCategory.VFR:  return "VFR";
                 case FlightCategory.MVFR: return "MVFR";
-                case FlightCategory.SVFR: return "SVFR";
                 case FlightCategory.IFR:  return "IFR";
                 case FlightCategory.LIFR: return "LIFR";
                 default:                  return "";
@@ -372,7 +384,7 @@ namespace WeatherPlugin.UI
                 if (entry.WatchMetar) RenderMetar(entry);
                 if (entry.WatchTaf)   RenderTaf(entry);
 
-                Write("\r\n" + new string('─', 100) + "\r\n\r\n", ColSep);
+                Write("\r\n" + new string('─', 72) + "\r\n", ColSep);
             }
 
             _display.SelectionStart = 0;
@@ -388,12 +400,9 @@ namespace WeatherPlugin.UI
             var catCol   = CategoryColor(cat);
             var catLabel = CategoryLabel(cat);
 
-            // Body uses category colour when acknowledged (Blue), Yellow when unread
-            var bodyCol = yellow ? ColYellow : (cat != FlightCategory.Unknown ? catCol : ColBlue);
-
             int spanStart = _display.TextLength;
 
-            // Header: ICAO + update dot (state colour) + [CATEGORY] badge (category colour) + obs time
+            // Header: ICAO  ●  [CAT]  time
             Write("METAR  " + entry.Icao, stateCol, MonoBold);
             if (yellow) Write("  ●", ColYellow, MonoBold);
             if (catLabel != "") Write($"  [{catLabel}]", catCol, UiBold);
@@ -401,12 +410,20 @@ namespace WeatherPlugin.UI
             if (obsTime != null) Write($"  {obsTime}", ColGrey, UiFont);
             Write("\r\n", stateCol);
 
-            // Body
+            // Body — individual elements coloured by their own NOAA category
             if (!string.IsNullOrEmpty(entry.MetarRaw))
             {
-                Write(entry.MetarRaw + "\r\n", bodyCol);
+                var tokens = MetarDecoder.TokenizeForDisplay(entry.MetarRaw);
+                for (int t = 0; t < tokens.Count; t++)
+                {
+                    var text    = tokens[t].Text;
+                    var elemCat = tokens[t].Cat;
+                    Write(text + (t < tokens.Count - 1 ? " " : ""), ElementColor(elemCat));
+                }
+                Write("\r\n", ColDetailTxt);
+
                 if (!string.IsNullOrEmpty(entry.PrevMetarRaw))
-                    Write("  Previous: " + entry.PrevMetarRaw + "\r\n", ColGrey, UiFont);
+                    Write("  Prev: " + entry.PrevMetarRaw + "\r\n", ColGrey, UiFont);
             }
             else
             {
@@ -429,7 +446,20 @@ namespace WeatherPlugin.UI
             if (!string.IsNullOrEmpty(entry.TafRaw))
             {
                 foreach (var line in entry.TafRaw.Split('\n'))
-                    Write(line.TrimEnd() + "\r\n", col);
+                {
+                    var trimmed = line.TrimEnd();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+
+                    var tokens = MetarDecoder.TokenizeForDisplay(trimmed);
+                    for (int t = 0; t < tokens.Count; t++)
+                    {
+                        var elemCat = tokens[t].Cat;
+                        Write(tokens[t].Text + (t < tokens.Count - 1 ? " " : ""),
+                              ElementColor(elemCat));
+                    }
+                    Write("\r\n", ColDetailTxt);
+                }
+
                 if (!string.IsNullOrEmpty(entry.PrevTafRaw))
                 {
                     Write("  Previous TAF:\r\n", ColGrey, UiFont);
