@@ -28,7 +28,13 @@
       "PowerShell(cmd /c dir \"C:\\\\Program Files \\(x86\\)\\\\vatSys\\\\bin\\\\Plugins\" 2>&1)",
       "PowerShell(cmd /c dir \"C:\\\\Program Files \\(x86\\)\\\\vatSys\" /s /b 2>&1)",
       "WebFetch(domain:aviationweather.gov)",
-      "WebFetch(domain:api.weather.bom.gov.au)"
+      "WebFetch(domain:api.weather.bom.gov.au)",
+      "Bash(dotnet build *)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" --version)",
+      "Bash(winget --version)",
+      "Bash(where winget *)",
+      "Bash(winget install *)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build \"c:/Users/corey/Documents/GitHub/VATSYS-Weather/WeatherPlugin/WeatherPlugin.csproj\" --configuration Release)"
     ]
   }
 }
