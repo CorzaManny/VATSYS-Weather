@@ -10,6 +10,11 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <!-- SDK auto-generates AssemblyInfo; our manual one would conflict -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <OutputPath>C:\Users\levis\Documents\vatSys Files\Profiles\Australia\Plugins\vatSys Weather</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>
