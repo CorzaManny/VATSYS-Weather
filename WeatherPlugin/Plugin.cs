@@ -15,8 +15,6 @@ namespace WeatherPlugin
         private static readonly string DisplayName = "AU Weather";
 
         private static WeatherCache  _cache;
-        private static WeatherWindow _window;
-        private static ResultWindow  _resultWindow;
         private static CustomToolStripMenuItem _menuItem;
 
         private System.Timers.Timer _metarTimer;
@@ -55,21 +53,11 @@ namespace WeatherPlugin
 
         private static void ShowWindow()
         {
-            var mainForm = Application.OpenForms["MainForm"];
-            if (mainForm == null) return;
-
             try
             {
                 MMI.InvokeOnGUI(delegate ()
                 {
-                    if (_resultWindow == null || _resultWindow.IsDisposed)
-                        _resultWindow = new ResultWindow(_cache);
-
-                    if (_window == null || _window.IsDisposed)
-                        _window = new WeatherWindow(_resultWindow);
-
-                    _window.Show(mainForm);
-                    _window.BringToFront();
+                    WeatherWindow.ShowWindow(_cache);
                 });
             }
             catch (Exception ex)
