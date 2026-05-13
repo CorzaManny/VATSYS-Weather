@@ -6,8 +6,8 @@ namespace WeatherPlugin.UI
 {
     public class WeatherWindow : Form
     {
-        private static readonly Color ColBg     = Color.FromArgb(160, 170, 170);
-        private static readonly Color ColPanel  = Color.FromArgb(130, 146, 146);
+        private static readonly Color ColBg     = Color.FromArgb(148, 158, 158);
+        private static readonly Color ColPanel  = Color.FromArgb(148, 158, 158);
         private static readonly Color ColBtn    = Color.FromArgb(130, 146, 146);
         private static readonly Color ColBtnBdr = Color.FromArgb(80, 90, 90);
 
@@ -63,7 +63,7 @@ namespace WeatherPlugin.UI
                 Font          = UiFont,
                 BackColor     = Color.FromArgb(200, 208, 208),
             };
-            _typeBox.Items.AddRange(new object[] { "METAR + TAF", "METAR only", "TAF only" });
+            _typeBox.Items.AddRange(new object[] { "METAR + TAF", "METAR only", "TAF only", "ATIS only", "All" });
             _typeBox.SelectedIndex = 0;
             x += _typeBox.Width + 6;
 
@@ -92,15 +92,17 @@ namespace WeatherPlugin.UI
             var icao = _icaoBox.Text.Trim().ToUpper();
             if (icao.Length != 4) { _statusLabel.Text = "Enter a 4-letter ICAO code."; return; }
 
-            bool metar = _typeBox.SelectedIndex != 2; // not "TAF only"
-            bool taf   = _typeBox.SelectedIndex != 1; // not "METAR only"
+            int sel = _typeBox.SelectedIndex;
+            bool metar = sel == 0 || sel == 1 || sel == 4; // METAR+TAF, METAR only, All
+            bool taf   = sel == 0 || sel == 2 || sel == 4; // METAR+TAF, TAF only,   All
+            bool atis  = sel == 3 || sel == 4;              // ATIS only,              All
 
             _statusLabel.Text = $"Requesting {icao}…";
 
             if (!_resultWindow.Visible)
                 _resultWindow.Show(this);
             _resultWindow.BringToFront();
-            _resultWindow.AddStation(icao, metar, taf);
+            _resultWindow.AddStation(icao, metar, taf, atis);
 
             _statusLabel.Text = $"{icao} sent to monitor.";
             _icaoBox.Clear();

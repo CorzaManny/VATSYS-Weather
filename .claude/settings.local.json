@@ -51,7 +51,8 @@
       "Bash(curl --max-time 10 -s \"ftp://ftp.bom.gov.au/anon/gen/fwo/IDQ60018.txt\")",
       "Bash(curl --max-time 15 \"ftp://ftp.bom.gov.au/anon/\" --list-only)",
       "Bash(curl --max-time 15 \"ftp://ftp.bom.gov.au/anon/pub/files/\" --list-only)",
-      "WebFetch(domain:forums.whirlpool.net.au)"
+      "WebFetch(domain:forums.whirlpool.net.au)",
+      "Bash(copy \"c:\\\\Users\\\\corey\\\\Documents\\\\GitHub\\\\VATSYS-Weather\\\\WeatherPlugin\\\\bin\\\\Release\\\\net472\\\\WeatherPlugin.dll\" \"C:\\\\Program Files \\(x86\\)\\\\vatSys\\\\bin\\\\Plugins\\\\WeatherPlugin.dll\")"
     ]
   }
 }

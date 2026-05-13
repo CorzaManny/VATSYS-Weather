@@ -42,7 +42,7 @@ namespace WeatherPlugin.Services
             try
             {
                 var text = await Http.GetStringAsync(AwcMetarUrl);
-                ParseAndCacheMetars(text, cache);
+                ParseAndCacheMetars(text, cache, "AWC");
             }
             catch (Exception ex)
             {
@@ -55,7 +55,7 @@ namespace WeatherPlugin.Services
             try
             {
                 var text = await Http.GetStringAsync(AwcTafUrl);
-                ParseAndCacheTafs(text, cache);
+                ParseAndCacheTafs(text, cache, "AWC");
             }
             catch (Exception ex)
             {
@@ -68,25 +68,26 @@ namespace WeatherPlugin.Services
         {
             icao = icao.ToUpper().Trim();
 
-            var entry      = cache.Get(icao);
-            bool metarStale = entry == null || entry.IsMetarStale(15);
-            bool tafStale   = entry == null || entry.IsTafStale(1);
-            if (!metarStale && !tafStale) return;
-
-            // ── Primary: NAIPS SOAP ──────────────────────────────────────────────
+            // ── Primary: NAIPS SOAP — always attempted when credentials are present ──
             if (NaipsService.HasCredentials)
             {
                 try
                 {
-                    var (metar, taf) = await NaipsService.FetchAsync(icao, Http);
-                    if (metar != null) cache.SetMetar(icao, metar);
-                    if (taf   != null) cache.SetTaf(icao, taf);
+                    var (metar, taf, atis) = await NaipsService.FetchAsync(icao, Http);
+                    if (metar != null) cache.SetMetar(icao, metar, "NAIPS");
+                    if (taf   != null) cache.SetTaf(icao, taf,   "NAIPS");
+                    if (atis  != null) cache.SetAtis(icao, atis,  "NAIPS");
                     return;
                 }
                 catch { }
             }
 
-            // ── Fallback: VATSIM METAR + AWC TAF ────────────────────────────────
+            // ── Fallback: VATSIM METAR + AWC TAF — only when cache is stale ────────
+            var entry       = cache.Get(icao);
+            bool metarStale = entry == null || entry.IsMetarStale(15);
+            bool tafStale   = entry == null || entry.IsTafStale(1);
+            if (!metarStale && !tafStale) return;
+
             if (metarStale)
             {
                 try
@@ -94,7 +95,7 @@ namespace WeatherPlugin.Services
                     var raw = await Http.GetStringAsync(VatsimMetarBase + icao);
                     raw = raw.Trim();
                     if (!string.IsNullOrEmpty(raw) && raw.Length > 10 && !raw.StartsWith("No"))
-                        cache.SetMetar(icao, raw);
+                        cache.SetMetar(icao, raw, "VATSIM");
                 }
                 catch { }
             }
@@ -107,7 +108,7 @@ namespace WeatherPlugin.Services
                     var text = await Http.GetStringAsync(url);
                     var tafs = ParseTafs(text);
                     if (tafs.TryGetValue(icao, out var taf))
-                        cache.SetTaf(icao, taf);
+                        cache.SetTaf(icao, taf, "AWC");
                 }
                 catch { }
             }
@@ -115,21 +116,21 @@ namespace WeatherPlugin.Services
 
         // ── Parsers ──────────────────────────────────────────────────────────────
 
-        private static void ParseAndCacheMetars(string raw, WeatherCache cache)
+        private static void ParseAndCacheMetars(string raw, WeatherCache cache, string source)
         {
             foreach (var kvp in ParseMetars(raw))
             {
                 if (kvp.Value.StartsWith("SPECI "))
-                    cache.SetSpeci(kvp.Key, kvp.Value);
+                    cache.SetSpeci(kvp.Key, kvp.Value, source);
                 else
-                    cache.SetMetar(kvp.Key, kvp.Value);
+                    cache.SetMetar(kvp.Key, kvp.Value, source);
             }
         }
 
-        private static void ParseAndCacheTafs(string raw, WeatherCache cache)
+        private static void ParseAndCacheTafs(string raw, WeatherCache cache, string source)
         {
             foreach (var kvp in ParseTafs(raw))
-                cache.SetTaf(kvp.Key, kvp.Value);
+                cache.SetTaf(kvp.Key, kvp.Value, source);
         }
 
         private static Dictionary<string, string> ParseMetars(string raw)

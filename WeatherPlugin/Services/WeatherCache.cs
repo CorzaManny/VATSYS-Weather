@@ -14,27 +14,38 @@ namespace WeatherPlugin.Services
         public DateTime LastTafRefresh { get; private set; }
         public int StationCount => _store.Count;
 
-        public void SetMetar(string icao, string raw)
+        public void SetMetar(string icao, string raw, string source = null)
         {
             var entry = _store.GetOrAdd(icao, k => new WeatherEntry { Icao = k.ToUpper() });
-            entry.RawMetar = raw;
-            entry.MetarTimestamp = DateTime.UtcNow;
-            LastMetarRefresh = DateTime.UtcNow;
+            entry.RawMetar        = raw;
+            entry.MetarSource     = source;
+            entry.MetarTimestamp  = DateTime.UtcNow;
+            LastMetarRefresh      = DateTime.UtcNow;
         }
 
-        public void SetSpeci(string icao, string raw)
+        public void SetSpeci(string icao, string raw, string source = null)
         {
             var entry = _store.GetOrAdd(icao, k => new WeatherEntry { Icao = k.ToUpper() });
-            entry.RawSpeci = raw;
+            entry.RawSpeci       = raw;
+            entry.MetarSource    = source;
             entry.MetarTimestamp = DateTime.UtcNow;
         }
 
-        public void SetTaf(string icao, string raw)
+        public void SetTaf(string icao, string raw, string source = null)
         {
             var entry = _store.GetOrAdd(icao, k => new WeatherEntry { Icao = k.ToUpper() });
-            entry.RawTaf = raw;
-            entry.TafTimestamp = DateTime.UtcNow;
-            LastTafRefresh = DateTime.UtcNow;
+            entry.RawTaf         = raw;
+            entry.TafSource      = source;
+            entry.TafTimestamp   = DateTime.UtcNow;
+            LastTafRefresh       = DateTime.UtcNow;
+        }
+
+        public void SetAtis(string icao, string raw, string source = null)
+        {
+            var entry = _store.GetOrAdd(icao, k => new WeatherEntry { Icao = k.ToUpper() });
+            entry.RawAtis        = raw;
+            entry.AtisSource     = source;
+            entry.AtisTimestamp  = DateTime.UtcNow;
         }
 
         public WeatherEntry Get(string icao) =>

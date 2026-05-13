@@ -17,13 +17,13 @@ namespace WeatherPlugin.UI
         private static readonly Color ColPanel    = Color.FromArgb(148, 158, 158);
         private static readonly Color ColBtn      = Color.FromArgb(140, 152, 152);
         private static readonly Color ColBtnBdr   = Color.FromArgb(90,  102, 102);
-        private static readonly Color ColDetailBg = Color.FromArgb(18,  22,  22);
-        private static readonly Color ColYellow   = Color.FromArgb(255, 200, 60);
-        private static readonly Color ColBlue     = Color.FromArgb(100, 160, 255);
-        private static readonly Color ColGrey     = Color.FromArgb(110, 130, 125);
-        private static readonly Color ColStale    = Color.FromArgb(170, 110, 40);
-        private static readonly Color ColSep      = Color.FromArgb(50,  62,  58);
-        private static readonly Color ColDetailTxt= Color.FromArgb(195, 215, 205);
+        private static readonly Color ColDetailBg = Color.FromArgb(148, 158, 158);
+        private static readonly Color ColYellow   = Color.FromArgb(180, 120,  0);
+        private static readonly Color ColBlue     = Color.FromArgb(20,  80,  180);
+        private static readonly Color ColGrey     = Color.FromArgb(70,  85,  85);
+        private static readonly Color ColStale    = Color.FromArgb(150, 60,   0);
+        private static readonly Color ColSep      = Color.FromArgb(105, 115, 115);
+        private static readonly Color ColDetailTxt= Color.FromArgb(15,  20,  20);
 
         // NATO MIL flight category colours (VFR/MVFR/IFR/LIFR — NOAA standard)
         private static readonly Color ColVfr  = Color.FromArgb(0,   210, 0);    // green
@@ -138,7 +138,7 @@ namespace WeatherPlugin.UI
 
         // ── Public API ────────────────────────────────────────────────────────
 
-        public void AddStation(string icao, bool watchMetar, bool watchTaf)
+        public void AddStation(string icao, bool watchMetar, bool watchTaf, bool watchAtis = false)
         {
             icao = icao.ToUpper();
 
@@ -150,8 +150,10 @@ namespace WeatherPlugin.UI
                     Icao       = icao,
                     WatchMetar = watchMetar,
                     WatchTaf   = watchTaf,
+                    WatchAtis  = watchAtis,
                     MetarState = EntryState.Yellow,
                     TafState   = EntryState.Yellow,
+                    AtisState  = EntryState.Yellow,
                 };
                 _entries.Add(entry);
             }
@@ -159,6 +161,7 @@ namespace WeatherPlugin.UI
             {
                 if (watchMetar) entry.WatchMetar = true;
                 if (watchTaf)   entry.WatchTaf   = true;
+                if (watchAtis)  entry.WatchAtis  = true;
             }
 
             SetStatus($"Fetching {icao}…");
@@ -173,6 +176,7 @@ namespace WeatherPlugin.UI
                     {
                         entry.MetarRaw = we.RawMetar;
                         entry.TafRaw   = we.RawTaf;
+                        entry.AtisRaw  = we.RawAtis;
                     }
                     Render();
                     SetStatus($"{_entries.Count} station(s)");
@@ -203,7 +207,7 @@ namespace WeatherPlugin.UI
         private async Task RefreshAll(bool metar, bool taf)
         {
             if (_fetching) return;
-            var stations = _entries.Where(e => (metar && e.WatchMetar) || (taf && e.WatchTaf))
+            var stations = _entries.Where(e => (metar && e.WatchMetar) || (taf && e.WatchTaf) || e.WatchAtis)
                                    .Select(e => e.Icao).ToList();
             if (stations.Count == 0) return;
 
@@ -248,6 +252,17 @@ namespace WeatherPlugin.UI
                             }
                             entry.TafRaw = nowTaf;
                         }
+
+                        if (entry.WatchAtis)
+                        {
+                            var nowAtis = we.RawAtis ?? "";
+                            if (entry.AtisRaw != null && entry.AtisRaw != nowAtis && nowAtis != "")
+                            {
+                                entry.PrevAtisRaw = entry.AtisRaw;
+                                entry.AtisState   = EntryState.Yellow;
+                            }
+                            entry.AtisRaw = nowAtis;
+                        }
                     }
                     Render();
                     SetStatus($"Updated {DateTime.UtcNow:HH:mm}Z  |  {_entries.Count} station(s)");
@@ -282,7 +297,9 @@ namespace WeatherPlugin.UI
             {
                 if (charIdx < span.Start || charIdx > span.End) continue;
 
-                if (span.IsMetar)
+                if (span.IsAtis)
+                    CycleAtisState(span.Entry);
+                else if (span.IsMetar)
                     CycleMetarState(span.Entry);
                 else
                     CycleTafState(span.Entry);
@@ -300,9 +317,8 @@ namespace WeatherPlugin.UI
             }
             else
             {
-                // Blue → remove METAR watch; if also not watching TAF, remove entry
                 entry.WatchMetar = false;
-                if (!entry.WatchTaf)
+                if (!entry.WatchTaf && !entry.WatchAtis)
                     _entries.Remove(entry);
             }
         }
@@ -316,7 +332,21 @@ namespace WeatherPlugin.UI
             else
             {
                 entry.WatchTaf = false;
-                if (!entry.WatchMetar)
+                if (!entry.WatchMetar && !entry.WatchAtis)
+                    _entries.Remove(entry);
+            }
+        }
+
+        private void CycleAtisState(MonitorEntry entry)
+        {
+            if (entry.AtisState == EntryState.Yellow)
+            {
+                entry.AtisState = EntryState.Blue;
+            }
+            else
+            {
+                entry.WatchAtis = false;
+                if (!entry.WatchMetar && !entry.WatchTaf)
                     _entries.Remove(entry);
             }
         }
@@ -383,6 +413,7 @@ namespace WeatherPlugin.UI
             {
                 if (entry.WatchMetar) RenderMetar(entry);
                 if (entry.WatchTaf)   RenderTaf(entry);
+                if (entry.WatchAtis)  RenderAtis(entry);
 
                 Write("\r\n" + new string('─', 72) + "\r\n", ColSep);
             }
@@ -402,12 +433,14 @@ namespace WeatherPlugin.UI
 
             int spanStart = _display.TextLength;
 
-            // Header: ICAO  ●  [CAT]  time
+            // Header: ICAO  ●  [CAT]  time  source
             Write("METAR  " + entry.Icao, stateCol, MonoBold);
             if (yellow) Write("  ●", ColYellow, MonoBold);
             if (catLabel != "") Write($"  [{catLabel}]", catCol, UiBold);
-            var obsTime = MetarDecoder.ParseObsTime(entry.MetarRaw ?? "");
+            var obsTime    = MetarDecoder.ParseObsTime(entry.MetarRaw ?? "");
             if (obsTime != null) Write($"  {obsTime}", ColGrey, UiFont);
+            var metarSrc   = _cache.Get(entry.Icao)?.MetarSource;
+            if (metarSrc  != null) Write($"  {metarSrc}", ColGrey, UiFont);
             Write("\r\n", stateCol);
 
             // Body — individual elements coloured by their own NOAA category
@@ -441,6 +474,8 @@ namespace WeatherPlugin.UI
             int spanStart = _display.TextLength;
             Write("TAF    " + entry.Icao, col, MonoBold);
             if (yellow) Write("  ●", ColYellow, MonoBold);
+            var tafSrc = _cache.Get(entry.Icao)?.TafSource;
+            if (tafSrc != null) Write($"  {tafSrc}", ColGrey, UiFont);
             Write("\r\n", col);
 
             if (!string.IsNullOrEmpty(entry.TafRaw))
@@ -473,6 +508,44 @@ namespace WeatherPlugin.UI
             }
 
             _spans.Add(new EntrySpan(entry, spanStart, _display.TextLength - 1, isMetar: false));
+        }
+
+        private void RenderAtis(MonitorEntry entry)
+        {
+            bool yellow = entry.AtisState == EntryState.Yellow;
+            var  col    = yellow ? ColYellow : ColBlue;
+
+            int spanStart = _display.TextLength;
+            Write("ATIS   " + entry.Icao, col, MonoBold);
+            if (yellow) Write("  ●", ColYellow, MonoBold);
+            var we = _cache.Get(entry.Icao);
+            if (we?.AtisSource != null) Write($"  {we.AtisSource}", ColGrey, UiFont);
+            if (we?.AtisTimestamp != default(DateTime))
+                Write($"  {we.AtisTimestamp:HH:mm}Z", ColGrey, UiFont);
+            Write("\r\n", col);
+
+            if (!string.IsNullOrEmpty(entry.AtisRaw))
+            {
+                foreach (var line in entry.AtisRaw.Split('\n'))
+                {
+                    var trimmed = line.TrimEnd();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    Write("  " + trimmed + "\r\n", ColDetailTxt, MonoFont);
+                }
+
+                if (!string.IsNullOrEmpty(entry.PrevAtisRaw))
+                {
+                    Write("  Previous ATIS:\r\n", ColGrey, UiFont);
+                    foreach (var line in entry.PrevAtisRaw.Split('\n'))
+                        Write("  " + line.TrimEnd() + "\r\n", ColGrey);
+                }
+            }
+            else
+            {
+                Write("  (No ATIS — NAIPS credentials required)\r\n", ColStale);
+            }
+
+            _spans.Add(new EntrySpan(entry, spanStart, _display.TextLength - 1, isMetar: false, isAtis: true));
         }
 
         private void Write(string text, Color color, Font font = null)
@@ -521,10 +594,11 @@ namespace WeatherPlugin.UI
             public int          Start   { get; }
             public int          End     { get; }
             public bool         IsMetar { get; }
+            public bool         IsAtis  { get; }
 
-            public EntrySpan(MonitorEntry entry, int start, int end, bool isMetar)
+            public EntrySpan(MonitorEntry entry, int start, int end, bool isMetar, bool isAtis = false)
             {
-                Entry = entry; Start = start; End = end; IsMetar = isMetar;
+                Entry = entry; Start = start; End = end; IsMetar = isMetar; IsAtis = isAtis;
             }
         }
 

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace WeatherPlugin.Services
 {
-    // Per-station METAR + TAF from the Airservices Australia NAIPS SOAP service.
+    // Per-station METAR + TAF + ATIS from the Airservices Australia NAIPS SOAP service.
     //
     // Setup: create a plain-text naips.cfg file next to WeatherPlugin.dll, OR at
     //        %APPDATA%\vatSys\naips.cfg, with the two lines:
@@ -80,8 +80,8 @@ namespace WeatherPlugin.Services
             }
         }
 
-        // Returns (metar, taf) — either may be null if not present in the response.
-        public static async Task<(string Metar, string Taf)> FetchAsync(
+        // Returns (metar, taf, atis) — any may be null if not present in the response.
+        public static async Task<(string Metar, string Taf, string Atis)> FetchAsync(
             string icao, HttpClient http)
         {
             var soap = string.Format(SoapFmt, Username.ToUpperInvariant(), Password, icao.ToUpperInvariant());
@@ -98,7 +98,7 @@ namespace WeatherPlugin.Services
                 using (var resp = await http.SendAsync(req))
                 {
                     var body = await resp.Content.ReadAsStringAsync();
-                    return (ExtractMet(body), ExtractTaf(body));
+                    return (ExtractMet(body), ExtractTaf(body), ExtractAtis(body, icao));
                 }
             }
         }
@@ -122,6 +122,26 @@ namespace WeatherPlugin.Services
         private static string ExtractTaf(string body)
         {
             int i = body.IndexOf("TAF ", StringComparison.Ordinal);
+            if (i < 0) return null;
+
+            var sb = new StringBuilder();
+            foreach (var raw in body.Substring(i).Split('\n'))
+            {
+                var line = raw.TrimEnd().TrimEnd('=');
+                if (string.IsNullOrWhiteSpace(line)) break;
+                if (line.TrimStart().StartsWith("<")) break;
+                sb.AppendLine(line);
+            }
+            var result = sb.ToString().Trim();
+            return result.Length > 8 ? result : null;
+        }
+
+        // Extracts an ATIS block — looks for "ATIS ICAO" then collects until blank line or XML tag.
+        private static string ExtractAtis(string body, string icao)
+        {
+            // Look for "ATIS XXXX" where XXXX is the station identifier
+            var marker = "ATIS " + icao.ToUpperInvariant();
+            int i = body.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
             if (i < 0) return null;
 
             var sb = new StringBuilder();
