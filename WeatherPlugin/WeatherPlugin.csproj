@@ -18,6 +18,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="naips.cfg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="vatSys">
       <HintPath>C:\Program Files (x86)\vatSys\bin\vatSys.exe</HintPath>
       <Private>false</Private>

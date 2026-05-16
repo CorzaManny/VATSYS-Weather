@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WeatherPlugin.Models;
@@ -12,52 +11,48 @@ namespace WeatherPlugin.UI
 {
     public class ResultWindow : Form
     {
-        // vatSys chrome: #A0AAAA and relatives
+        // vatSys chrome
         private static readonly Color ColBg       = Color.FromArgb(160, 170, 170);
         private static readonly Color ColPanel    = Color.FromArgb(148, 158, 158);
         private static readonly Color ColBtn      = Color.FromArgb(140, 152, 152);
         private static readonly Color ColBtnBdr   = Color.FromArgb(90,  102, 102);
         private static readonly Color ColDetailBg = Color.FromArgb(148, 158, 158);
-        private static readonly Color ColYellow   = Color.FromArgb(180, 120,  0);
-        private static readonly Color ColBlue     = Color.FromArgb(20,  80,  180);
-        private static readonly Color ColGrey     = Color.FromArgb(70,  85,  85);
-        private static readonly Color ColStale    = Color.FromArgb(150, 60,   0);
-        private static readonly Color ColSep      = Color.FromArgb(105, 115, 115);
-        private static readonly Color ColDetailTxt= Color.FromArgb(15,  20,  20);
+        private static readonly Color ColYellow   = Color.FromArgb(255, 200,  60);
+        private static readonly Color ColBlue     = Color.FromArgb(100, 160, 255);
+        private static readonly Color ColGrey     = Color.FromArgb(200, 210, 210);
+        private static readonly Color ColStale    = Color.FromArgb(255, 140,  40);
+        private static readonly Color ColSep      = Color.FromArgb(110, 120, 120);
+        private static readonly Color ColDetailTxt= Color.White;
 
-        // NATO MIL flight category colours (VFR/MVFR/IFR/LIFR — NOAA standard)
-        private static readonly Color ColVfr  = Color.FromArgb(0,   210, 0);    // green
-        private static readonly Color ColMvfr = Color.FromArgb(80,  140, 255);  // blue
-        private static readonly Color ColIfr  = Color.FromArgb(220, 50,  50);   // red
-        private static readonly Color ColLifr = Color.FromArgb(220, 60,  220);  // magenta
+        // NATO MIL flight category colours
+        private static readonly Color ColVfr  = Color.FromArgb(0,   210,   0);
+        private static readonly Color ColMvfr = Color.FromArgb(80,  140, 255);
+        private static readonly Color ColIfr  = Color.FromArgb(220,  50,  50);
+        private static readonly Color ColLifr = Color.FromArgb(220,  60, 220);
 
-        private static readonly Font MonoFont = new Font("Courier New", 8f,  FontStyle.Regular);
-        private static readonly Font MonoBold = new Font("Courier New", 8f,  FontStyle.Bold);
-        private static readonly Font UiFont   = new Font("Arial",       8f,  FontStyle.Regular);
-        private static readonly Font UiBold   = new Font("Arial",       8f,  FontStyle.Bold);
+        private static readonly Font MonoFont = new Font("Courier New", 8f, FontStyle.Regular);
+        private static readonly Font MonoBold = new Font("Courier New", 8f, FontStyle.Bold);
+        private static readonly Font UiFont   = new Font("Arial",       8f, FontStyle.Regular);
+        private static readonly Font UiBold   = new Font("Arial",       8f, FontStyle.Bold);
 
-        private const int MetarIntervalMs = 60_000;   // 1 minute
-        private const int TafIntervalMs   = 300_000;  // 5 minutes
+        private const int RefreshIntervalMs = 60_000;
 
         // ── State ─────────────────────────────────────────────────────────────
-        private readonly WeatherCache _cache;
-        private readonly List<MonitorEntry> _entries = new List<MonitorEntry>();
+        private readonly WeatherCache        _cache;
+        private readonly List<MonitorEntry>  _entries = new List<MonitorEntry>();
+        private readonly List<EntrySpan>     _spans   = new List<EntrySpan>();
 
-        private System.Timers.Timer        _metarTimer;
-        private System.Timers.Timer        _tafTimer;
-        private System.Windows.Forms.Timer _countdownTimer;
-        private DateTime _nextMetarRefresh;
-        private DateTime _nextTafRefresh;
+        private System.Timers.Timer        _refreshTimer;
+        private System.Windows.Forms.Timer _tickTimer;
+        private DateTime _nextRefresh;
         private bool     _fetching;
+        private bool     _flashOn;
 
         // ── Controls ──────────────────────────────────────────────────────────
-        private Label          _statusLabel;
-        private Label          _countdownLabel;
-        private Button         _refreshNowBtn;
-        private ClickableRtb   _display;
-
-        // Span tracking: each row's character range so middle-click can hit-test
-        private readonly List<EntrySpan> _spans = new List<EntrySpan>();
+        private Label       _statusLabel;
+        private Label       _countdownLabel;
+        private Button      _refreshNowBtn;
+        private RichTextBox _display;
 
         public ResultWindow(WeatherCache cache)
         {
@@ -78,15 +73,12 @@ namespace WeatherPlugin.UI
             StartPosition   = FormStartPosition.Manual;
             Font            = UiFont;
 
-            var toolbar = new Panel
-            {
-                Dock = DockStyle.Top, Height = 26, BackColor = ColPanel,
-            };
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 26, BackColor = ColPanel };
 
             int x = 6, y = 4;
 
             _refreshNowBtn = Btn("Refresh All", x, y);
-            _refreshNowBtn.Click += async (s, e) => await RefreshAll(metar: true, taf: true);
+            _refreshNowBtn.Click += async (s, e) => await RefreshAll();
             x += _refreshNowBtn.Width + 10;
 
             _statusLabel = new Label
@@ -105,7 +97,7 @@ namespace WeatherPlugin.UI
 
             toolbar.Controls.AddRange(new Control[] { _refreshNowBtn, _statusLabel, _countdownLabel });
 
-            _display = new ClickableRtb
+            _display = new RichTextBox
             {
                 Dock        = DockStyle.Fill,
                 ReadOnly    = true,
@@ -116,7 +108,7 @@ namespace WeatherPlugin.UI
                 BorderStyle = BorderStyle.None,
                 ScrollBars  = RichTextBoxScrollBars.Both,
             };
-            _display.MiddleClick += OnDisplayMiddleClick;
+            _display.MouseClick += OnDisplayClick;
 
             Controls.Add(_display);
             Controls.Add(toolbar);
@@ -188,34 +180,27 @@ namespace WeatherPlugin.UI
 
         private void StartTimers()
         {
-            _nextMetarRefresh = DateTime.UtcNow.AddMilliseconds(MetarIntervalMs);
-            _nextTafRefresh   = DateTime.UtcNow.AddMilliseconds(TafIntervalMs);
+            _nextRefresh = DateTime.UtcNow.AddMilliseconds(RefreshIntervalMs);
 
-            _metarTimer = new System.Timers.Timer(MetarIntervalMs) { AutoReset = true };
-            _metarTimer.Elapsed += (s, e) => _ = RefreshAll(metar: true, taf: false);
-            _metarTimer.Start();
+            _refreshTimer = new System.Timers.Timer(RefreshIntervalMs) { AutoReset = true };
+            _refreshTimer.Elapsed += (s, e) => _ = RefreshAll();
+            _refreshTimer.Start();
 
-            _tafTimer = new System.Timers.Timer(TafIntervalMs) { AutoReset = true };
-            _tafTimer.Elapsed += (s, e) => _ = RefreshAll(metar: false, taf: true);
-            _tafTimer.Start();
-
-            _countdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _countdownTimer.Tick += (s, e) => TickCountdown();
-            _countdownTimer.Start();
+            _tickTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _tickTimer.Tick += (s, e) => Tick();
+            _tickTimer.Start();
         }
 
-        private async Task RefreshAll(bool metar, bool taf)
+        private async Task RefreshAll()
         {
             if (_fetching) return;
-            var stations = _entries.Where(e => (metar && e.WatchMetar) || (taf && e.WatchTaf) || e.WatchAtis)
-                                   .Select(e => e.Icao).ToList();
+            var stations = _entries.Select(e => e.Icao).ToList();
             if (stations.Count == 0) return;
 
             _fetching = true;
-            if (metar) _nextMetarRefresh = DateTime.UtcNow.AddMilliseconds(MetarIntervalMs);
-            if (taf)   _nextTafRefresh   = DateTime.UtcNow.AddMilliseconds(TafIntervalMs);
-
+            _nextRefresh = DateTime.UtcNow.AddMilliseconds(RefreshIntervalMs);
             SetStatus("Refreshing…");
+
             try
             {
                 await Task.Run(async () =>
@@ -231,37 +216,37 @@ namespace WeatherPlugin.UI
                         var we = _cache.Get(entry.Icao);
                         if (we == null) continue;
 
-                        if (metar && entry.WatchMetar)
+                        if (entry.WatchMetar)
                         {
-                            var nowMetar = we.RawMetar ?? "";
-                            if (entry.MetarRaw != null && entry.MetarRaw != nowMetar && nowMetar != "")
+                            var now = we.RawMetar ?? "";
+                            if (entry.MetarRaw != null && entry.MetarRaw != now && now != "")
                             {
                                 entry.PrevMetarRaw = entry.MetarRaw;
                                 entry.MetarState   = EntryState.Yellow;
                             }
-                            entry.MetarRaw = nowMetar;
+                            entry.MetarRaw = now;
                         }
 
-                        if (taf && entry.WatchTaf)
+                        if (entry.WatchTaf)
                         {
-                            var nowTaf = we.RawTaf ?? "";
-                            if (entry.TafRaw != null && entry.TafRaw != nowTaf && nowTaf != "")
+                            var now = we.RawTaf ?? "";
+                            if (entry.TafRaw != null && entry.TafRaw != now && now != "")
                             {
                                 entry.PrevTafRaw = entry.TafRaw;
                                 entry.TafState   = EntryState.Yellow;
                             }
-                            entry.TafRaw = nowTaf;
+                            entry.TafRaw = now;
                         }
 
                         if (entry.WatchAtis)
                         {
-                            var nowAtis = we.RawAtis ?? "";
-                            if (entry.AtisRaw != null && entry.AtisRaw != nowAtis && nowAtis != "")
+                            var now = we.RawAtis ?? "";
+                            if (entry.AtisRaw != null && entry.AtisRaw != now && now != "")
                             {
                                 entry.PrevAtisRaw = entry.AtisRaw;
                                 entry.AtisState   = EntryState.Yellow;
                             }
-                            entry.AtisRaw = nowAtis;
+                            entry.AtisRaw = now;
                         }
                     }
                     Render();
@@ -274,86 +259,51 @@ namespace WeatherPlugin.UI
             }
         }
 
-        private void TickCountdown()
+        private void Tick()
         {
-            if (_entries.Count == 0) return;
-            var rm = _nextMetarRefresh - DateTime.UtcNow;
-            var rt = _nextTafRefresh   - DateTime.UtcNow;
-            if (rm < TimeSpan.Zero) rm = TimeSpan.Zero;
-            if (rt < TimeSpan.Zero) rt = TimeSpan.Zero;
-            SafeUi(() => _countdownLabel.Text =
-                $"METAR {rm.Minutes}:{rm.Seconds:D2}  TAF {rt.Minutes}:{rt.Seconds:D2}");
+            _flashOn = !_flashOn;
+
+            var rem = _nextRefresh - DateTime.UtcNow;
+            if (rem < TimeSpan.Zero) rem = TimeSpan.Zero;
+
+            SafeUi(() =>
+            {
+                _countdownLabel.Text = $"Next: {(int)rem.TotalMinutes}:{rem.Seconds:D2}";
+
+                bool anyFlashing = _entries.Any(e =>
+                    (e.WatchMetar && e.MetarState == EntryState.Yellow) ||
+                    (e.WatchTaf   && e.TafState   == EntryState.Yellow) ||
+                    (e.WatchAtis  && e.AtisState  == EntryState.Yellow));
+
+                if (anyFlashing) Render();
+            });
         }
 
-        // ── Middle-click handling ─────────────────────────────────────────────
+        // ── Click to acknowledge ──────────────────────────────────────────────
 
-        private void OnDisplayMiddleClick(Point clientPt)
+        private void OnDisplayClick(object sender, MouseEventArgs e)
         {
+            if (e.Button != MouseButtons.Left) return;
+
             int charIdx;
-            try { charIdx = _display.GetCharIndexFromPosition(clientPt); }
+            try { charIdx = _display.GetCharIndexFromPosition(e.Location); }
             catch { return; }
 
             foreach (var span in _spans)
             {
                 if (charIdx < span.Start || charIdx > span.End) continue;
 
-                if (span.IsAtis)
-                    CycleAtisState(span.Entry);
-                else if (span.IsMetar)
-                    CycleMetarState(span.Entry);
-                else
-                    CycleTafState(span.Entry);
+                if (span.IsAtis)        span.Entry.AtisState  = EntryState.Blue;
+                else if (span.IsMetar)  span.Entry.MetarState = EntryState.Blue;
+                else                    span.Entry.TafState   = EntryState.Blue;
 
                 Render();
                 return;
             }
         }
 
-        private void CycleMetarState(MonitorEntry entry)
-        {
-            if (entry.MetarState == EntryState.Yellow)
-            {
-                entry.MetarState = EntryState.Blue;
-            }
-            else
-            {
-                entry.WatchMetar = false;
-                if (!entry.WatchTaf && !entry.WatchAtis)
-                    _entries.Remove(entry);
-            }
-        }
-
-        private void CycleTafState(MonitorEntry entry)
-        {
-            if (entry.TafState == EntryState.Yellow)
-            {
-                entry.TafState = EntryState.Blue;
-            }
-            else
-            {
-                entry.WatchTaf = false;
-                if (!entry.WatchMetar && !entry.WatchAtis)
-                    _entries.Remove(entry);
-            }
-        }
-
-        private void CycleAtisState(MonitorEntry entry)
-        {
-            if (entry.AtisState == EntryState.Yellow)
-            {
-                entry.AtisState = EntryState.Blue;
-            }
-            else
-            {
-                entry.WatchAtis = false;
-                if (!entry.WatchMetar && !entry.WatchTaf)
-                    _entries.Remove(entry);
-            }
-        }
-
         // ── Flight category helpers ───────────────────────────────────────────
 
-        // Badge colour — VFR still shows green in the header badge.
         private static Color CategoryColor(FlightCategory cat)
         {
             switch (cat)
@@ -366,7 +316,6 @@ namespace WeatherPlugin.UI
             }
         }
 
-        // Per-element colour — VFR elements render in the standard text colour ("white when okay").
         private static Color ElementColor(FlightCategory? cat)
         {
             if (cat == null) return ColDetailTxt;
@@ -392,6 +341,11 @@ namespace WeatherPlugin.UI
             }
         }
 
+        // Returns the colour for a section header — yellow flashes, blue is static.
+        private Color StateColor(EntryState state) =>
+            state == EntryState.Blue ? ColBlue
+                                     : (_flashOn ? ColYellow : ColDetailTxt);
+
         // ── Rendering ─────────────────────────────────────────────────────────
 
         private void Render()
@@ -404,8 +358,7 @@ namespace WeatherPlugin.UI
 
             if (_entries.Count == 0)
             {
-                Write("No stations monitored.\r\nUse the AU Weather window to request a station.\r\n",
-                      ColGrey, UiFont);
+                Write("No stations monitored.\r\nUse the AU Weather window to request a station.\r\n", ColGrey, UiFont);
                 return;
             }
 
@@ -424,35 +377,27 @@ namespace WeatherPlugin.UI
 
         private void RenderMetar(MonitorEntry entry)
         {
-            bool yellow   = entry.MetarState == EntryState.Yellow;
-            var  stateCol = yellow ? ColYellow : ColBlue;
-
+            var stateCol = StateColor(entry.MetarState);
             var cat      = MetarDecoder.Classify(entry.MetarRaw ?? "");
-            var catCol   = CategoryColor(cat);
             var catLabel = CategoryLabel(cat);
 
             int spanStart = _display.TextLength;
 
-            // Header: ICAO  ●  [CAT]  time  source
             Write("METAR  " + entry.Icao, stateCol, MonoBold);
-            if (yellow) Write("  ●", ColYellow, MonoBold);
-            if (catLabel != "") Write($"  [{catLabel}]", catCol, UiBold);
-            var obsTime    = MetarDecoder.ParseObsTime(entry.MetarRaw ?? "");
+            if (entry.MetarState == EntryState.Yellow)
+                Write("  ●", _flashOn ? ColYellow : ColDetailTxt, MonoBold);
+            if (catLabel != "") Write($"  [{catLabel}]", CategoryColor(cat), UiBold);
+            var obsTime = MetarDecoder.ParseObsTime(entry.MetarRaw ?? "");
             if (obsTime != null) Write($"  {obsTime}", ColGrey, UiFont);
-            var metarSrc   = _cache.Get(entry.Icao)?.MetarSource;
-            if (metarSrc  != null) Write($"  {metarSrc}", ColGrey, UiFont);
+            var src = _cache.Get(entry.Icao)?.MetarSource;
+            if (src != null) Write($"  {src}", ColGrey, UiFont);
             Write("\r\n", stateCol);
 
-            // Body — individual elements coloured by their own NOAA category
             if (!string.IsNullOrEmpty(entry.MetarRaw))
             {
                 var tokens = MetarDecoder.TokenizeForDisplay(entry.MetarRaw);
                 for (int t = 0; t < tokens.Count; t++)
-                {
-                    var text    = tokens[t].Text;
-                    var elemCat = tokens[t].Cat;
-                    Write(text + (t < tokens.Count - 1 ? " " : ""), ElementColor(elemCat));
-                }
+                    Write(tokens[t].Text + (t < tokens.Count - 1 ? " " : ""), ElementColor(tokens[t].Cat));
                 Write("\r\n", ColDetailTxt);
 
                 if (!string.IsNullOrEmpty(entry.PrevMetarRaw))
@@ -468,15 +413,15 @@ namespace WeatherPlugin.UI
 
         private void RenderTaf(MonitorEntry entry)
         {
-            bool yellow = entry.TafState == EntryState.Yellow;
-            var  col    = yellow ? ColYellow : ColBlue;
+            var stateCol = StateColor(entry.TafState);
 
             int spanStart = _display.TextLength;
-            Write("TAF    " + entry.Icao, col, MonoBold);
-            if (yellow) Write("  ●", ColYellow, MonoBold);
-            var tafSrc = _cache.Get(entry.Icao)?.TafSource;
-            if (tafSrc != null) Write($"  {tafSrc}", ColGrey, UiFont);
-            Write("\r\n", col);
+            Write("TAF    " + entry.Icao, stateCol, MonoBold);
+            if (entry.TafState == EntryState.Yellow)
+                Write("  ●", _flashOn ? ColYellow : ColDetailTxt, MonoBold);
+            var src = _cache.Get(entry.Icao)?.TafSource;
+            if (src != null) Write($"  {src}", ColGrey, UiFont);
+            Write("\r\n", stateCol);
 
             if (!string.IsNullOrEmpty(entry.TafRaw))
             {
@@ -484,14 +429,9 @@ namespace WeatherPlugin.UI
                 {
                     var trimmed = line.TrimEnd();
                     if (string.IsNullOrEmpty(trimmed)) continue;
-
                     var tokens = MetarDecoder.TokenizeForDisplay(trimmed);
                     for (int t = 0; t < tokens.Count; t++)
-                    {
-                        var elemCat = tokens[t].Cat;
-                        Write(tokens[t].Text + (t < tokens.Count - 1 ? " " : ""),
-                              ElementColor(elemCat));
-                    }
+                        Write(tokens[t].Text + (t < tokens.Count - 1 ? " " : ""), ElementColor(tokens[t].Cat));
                     Write("\r\n", ColDetailTxt);
                 }
 
@@ -512,25 +452,25 @@ namespace WeatherPlugin.UI
 
         private void RenderAtis(MonitorEntry entry)
         {
-            bool yellow = entry.AtisState == EntryState.Yellow;
-            var  col    = yellow ? ColYellow : ColBlue;
+            var stateCol = StateColor(entry.AtisState);
 
             int spanStart = _display.TextLength;
-            Write("ATIS   " + entry.Icao, col, MonoBold);
-            if (yellow) Write("  ●", ColYellow, MonoBold);
+            Write("ATIS   " + entry.Icao, stateCol, MonoBold);
+            if (entry.AtisState == EntryState.Yellow)
+                Write("  ●", _flashOn ? ColYellow : ColDetailTxt, MonoBold);
             var we = _cache.Get(entry.Icao);
             if (we?.AtisSource != null) Write($"  {we.AtisSource}", ColGrey, UiFont);
-            if (we?.AtisTimestamp != default(DateTime))
+            if (we != null && we.AtisTimestamp != default(DateTime))
                 Write($"  {we.AtisTimestamp:HH:mm}Z", ColGrey, UiFont);
-            Write("\r\n", col);
+            Write("\r\n", stateCol);
 
             if (!string.IsNullOrEmpty(entry.AtisRaw))
             {
                 foreach (var line in entry.AtisRaw.Split('\n'))
                 {
-                    var trimmed = line.TrimEnd();
+                    var trimmed = line.Trim();
                     if (string.IsNullOrEmpty(trimmed)) continue;
-                    Write("  " + trimmed + "\r\n", ColDetailTxt, MonoFont);
+                    Write(trimmed + "\r\n", ColDetailTxt, MonoFont);
                 }
 
                 if (!string.IsNullOrEmpty(entry.PrevAtisRaw))
@@ -566,7 +506,6 @@ namespace WeatherPlugin.UI
             else a();
         }
 
-        // Hide instead of close so state is preserved
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing)
@@ -580,9 +519,8 @@ namespace WeatherPlugin.UI
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            _metarTimer?.Dispose();
-            _tafTimer?.Dispose();
-            _countdownTimer?.Stop();
+            _refreshTimer?.Dispose();
+            _tickTimer?.Stop();
             base.OnFormClosed(e);
         }
 
@@ -599,26 +537,6 @@ namespace WeatherPlugin.UI
             public EntrySpan(MonitorEntry entry, int start, int end, bool isMetar, bool isAtis = false)
             {
                 Entry = entry; Start = start; End = end; IsMetar = isMetar; IsAtis = isAtis;
-            }
-        }
-
-        // RichTextBox subclass that exposes middle-click via an event
-        private class ClickableRtb : RichTextBox
-        {
-            public event Action<Point> MiddleClick;
-
-            private const int WM_MBUTTONDOWN = 0x0207;
-
-            protected override void WndProc(ref Message m)
-            {
-                if (m.Msg == WM_MBUTTONDOWN)
-                {
-                    int x = m.LParam.ToInt32() & 0xFFFF;
-                    int y = (m.LParam.ToInt32() >> 16) & 0xFFFF;
-                    MiddleClick?.Invoke(new Point(x, y));
-                    return; // swallow so base doesn't scroll
-                }
-                base.WndProc(ref m);
             }
         }
     }

@@ -139,7 +139,6 @@ namespace WeatherPlugin.Services
         // Extracts an ATIS block — looks for "ATIS ICAO" then collects until blank line or XML tag.
         private static string ExtractAtis(string body, string icao)
         {
-            // Look for "ATIS XXXX" where XXXX is the station identifier
             var marker = "ATIS " + icao.ToUpperInvariant();
             int i = body.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
             if (i < 0) return null;
@@ -147,10 +146,12 @@ namespace WeatherPlugin.Services
             var sb = new StringBuilder();
             foreach (var raw in body.Substring(i).Split('\n'))
             {
-                var line = raw.TrimEnd().TrimEnd('=');
-                if (string.IsNullOrWhiteSpace(line)) break;
-                if (line.TrimStart().StartsWith("<")) break;
-                sb.AppendLine(line);
+                var trimmed = raw.Trim().TrimEnd('=');
+                if (string.IsNullOrWhiteSpace(trimmed)) break;
+                if (trimmed.StartsWith("<")) break;
+                // Collapse any runs of internal whitespace to a single space
+                var normalised = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s+", " ");
+                sb.AppendLine(normalised);
             }
             var result = sb.ToString().Trim();
             return result.Length > 8 ? result : null;

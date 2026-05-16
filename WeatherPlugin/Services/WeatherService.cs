@@ -77,7 +77,7 @@ namespace WeatherPlugin.Services
                     if (metar != null) cache.SetMetar(icao, metar, "NAIPS");
                     if (taf   != null) cache.SetTaf(icao, taf,   "NAIPS");
                     if (atis  != null) cache.SetAtis(icao, atis,  "NAIPS");
-                    return;
+                    if (metar != null || taf != null || atis != null) return;
                 }
                 catch { }
             }

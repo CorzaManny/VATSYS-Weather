@@ -37,8 +37,7 @@ namespace WeatherPlugin.UI
         private static readonly Color ColListSelBg = Color.FromArgb(120, 130, 135);
 
         // ── Timing ────────────────────────────────────────────────────────
-        private const int MetarIntervalMs = 60_000;
-        private const int TafIntervalMs   = 300_000;
+        private const int RefreshIntervalMs = 60_000;
 
         // ── Controls ──────────────────────────────────────────────────────
         private TextBox       _icaoBox;
@@ -60,12 +59,11 @@ namespace WeatherPlugin.UI
         private string     _selectedIcao;
 
         // ── Timers ────────────────────────────────────────────────────────
-        private System.Timers.Timer        _metarTimer;
-        private System.Timers.Timer        _tafTimer;
+        private System.Timers.Timer        _refreshTimer;
         private System.Windows.Forms.Timer _countdownTimer;
-        private DateTime _nextMetarRefresh;
-        private DateTime _nextTafRefresh;
+        private DateTime _nextRefresh;
         private bool     _fetching;
+        private bool     _flashOn;
 
         // ── Singleton ─────────────────────────────────────────────────────
         private static WeatherWindow _instance;
@@ -179,18 +177,29 @@ namespace WeatherPlugin.UI
             _stationList.DrawItem += (s, e) =>
             {
                 if (e.Index < 0) return;
+                var icao = _stationList.Items[e.Index].ToString();
+                var me = _entries.FirstOrDefault(x => x.Icao == icao);
                 var isSelected = (e.State & DrawItemState.Selected) != 0;
-                var bgc = isSelected ? ColListSelBg : ColDisplayBg;
-                var fgc = isSelected ? Color.White : ColDisplayFg;
+
+                bool hasChange = _flashOn && me != null && (
+                    me.MetarState == EntryState.Yellow ||
+                    me.TafState   == EntryState.Yellow ||
+                    me.AtisState  == EntryState.Yellow);
+
+                Color bgc = isSelected ? ColListSelBg : hasChange ? Color.Yellow : ColDisplayBg;
+                Color fgc = isSelected ? Color.White  : hasChange ? Color.Black  : ColDisplayFg;
+
                 e.Graphics.FillRectangle(new SolidBrush(bgc), e.Bounds);
-                TextRenderer.DrawText(e.Graphics, _stationList.Items[e.Index].ToString(),
-                    _stationList.Font, e.Bounds, fgc, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+                TextRenderer.DrawText(e.Graphics, icao, _stationList.Font, e.Bounds, fgc,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
             };
             _stationList.SelectedIndexChanged += (s, e) =>
             {
                 if (_stationList.SelectedItem is string icao)
                 {
                     _selectedIcao = icao;
+                    var me = _entries.FirstOrDefault(x => x.Icao == icao);
+                    if (me != null) AcknowledgeTab(me, _activeTab);
                     RenderContent();
                 }
             };
@@ -259,16 +268,39 @@ namespace WeatherPlugin.UI
         private void SetActiveTab(WeatherTab tab)
         {
             _activeTab = tab;
+            var me = _entries.FirstOrDefault(e => e.Icao == _selectedIcao);
+            if (me != null) AcknowledgeTab(me, tab);
             UpdateTabHighlight();
             RenderContent();
         }
 
         private void UpdateTabHighlight()
         {
-            var fg = Colours.GetColour(Colours.Identities.InteractiveText);
-            _metarBtn.ForeColor = _activeTab == WeatherTab.Metar ? ColTabOn : fg;
-            _tafBtn.ForeColor   = _activeTab == WeatherTab.Taf   ? ColTabOn : fg;
-            _atisBtn.ForeColor  = _activeTab == WeatherTab.Atis  ? ColTabOn : fg;
+            var fg    = Colours.GetColour(Colours.Identities.InteractiveText);
+            var me    = _entries.FirstOrDefault(e => e.Icao == _selectedIcao);
+            bool flash = _flashOn && me != null;
+
+            _metarBtn.ForeColor = _activeTab == WeatherTab.Metar ? ColTabOn
+                : (flash && me.MetarState == EntryState.Yellow)  ? Color.Yellow
+                : fg;
+            _tafBtn.ForeColor   = _activeTab == WeatherTab.Taf   ? ColTabOn
+                : (flash && me.TafState   == EntryState.Yellow)  ? Color.Yellow
+                : fg;
+            _atisBtn.ForeColor  = _activeTab == WeatherTab.Atis  ? ColTabOn
+                : (flash && me.AtisState  == EntryState.Yellow)  ? Color.Yellow
+                : fg;
+        }
+
+        private void AcknowledgeTab(MonitorEntry me, WeatherTab tab)
+        {
+            switch (tab)
+            {
+                case WeatherTab.Metar: me.MetarState = EntryState.Blue; break;
+                case WeatherTab.Taf:   me.TafState   = EntryState.Blue; break;
+                case WeatherTab.Atis:  me.AtisState  = EntryState.Blue; break;
+            }
+            _stationList.Invalidate();
+            UpdateTabHighlight();
         }
 
         // ── Search ────────────────────────────────────────────────────────
@@ -291,9 +323,9 @@ namespace WeatherPlugin.UI
                     WatchMetar = true,
                     WatchTaf   = true,
                     WatchAtis  = true,
-                    MetarState = EntryState.Yellow,
-                    TafState   = EntryState.Yellow,
-                    AtisState  = EntryState.Yellow,
+                    MetarState = EntryState.Blue,
+                    TafState   = EntryState.Blue,
+                    AtisState  = EntryState.Blue,
                 };
                 _entries.Add(entry);
                 _stationList.Items.Add(icao);
@@ -446,7 +478,7 @@ namespace WeatherPlugin.UI
 
             Write($"ATIS  {entry.Icao}", ColDisplayFg, MonoBold);
             if (we?.AtisSource != null) Write($"  ({we.AtisSource})", ColDimText);
-            if (we?.AtisTimestamp != default(DateTime))
+            if (we != null && we.AtisTimestamp != default(DateTime))
                 Write($"  {we.AtisTimestamp:HH:mm}Z", ColDimText);
             Write("\n\n", ColDisplayFg);
 
@@ -520,16 +552,11 @@ namespace WeatherPlugin.UI
 
         private void StartTimers()
         {
-            _nextMetarRefresh = DateTime.UtcNow.AddMilliseconds(MetarIntervalMs);
-            _nextTafRefresh   = DateTime.UtcNow.AddMilliseconds(TafIntervalMs);
+            _nextRefresh = DateTime.UtcNow.AddMilliseconds(RefreshIntervalMs);
 
-            _metarTimer = new System.Timers.Timer(MetarIntervalMs) { AutoReset = true };
-            _metarTimer.Elapsed += (s, e) => _ = RefreshAll();
-            _metarTimer.Start();
-
-            _tafTimer = new System.Timers.Timer(TafIntervalMs) { AutoReset = true };
-            _tafTimer.Elapsed += (s, e) => _ = RefreshAll();
-            _tafTimer.Start();
+            _refreshTimer = new System.Timers.Timer(RefreshIntervalMs) { AutoReset = true };
+            _refreshTimer.Elapsed += (s, e) => _ = RefreshAll();
+            _refreshTimer.Start();
 
             _countdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _countdownTimer.Tick += (s, e) => TickCountdown();
@@ -543,8 +570,7 @@ namespace WeatherPlugin.UI
             if (stations.Count == 0) return;
 
             _fetching = true;
-            _nextMetarRefresh = DateTime.UtcNow.AddMilliseconds(MetarIntervalMs);
-            _nextTafRefresh   = DateTime.UtcNow.AddMilliseconds(TafIntervalMs);
+            _nextRefresh = DateTime.UtcNow.AddMilliseconds(RefreshIntervalMs);
 
             SafeUi(() => SetStatus("Refreshing…"));
 
@@ -564,7 +590,7 @@ namespace WeatherPlugin.UI
                         if (we == null) continue;
 
                         var nowMetar = we.RawMetar ?? "";
-                        if (entry.MetarRaw != null && entry.MetarRaw != nowMetar && nowMetar != "")
+                        if (entry.MetarRaw != nowMetar && nowMetar != "")
                         {
                             entry.PrevMetarRaw = entry.MetarRaw;
                             entry.MetarState   = EntryState.Yellow;
@@ -572,7 +598,7 @@ namespace WeatherPlugin.UI
                         entry.MetarRaw = nowMetar;
 
                         var nowTaf = we.RawTaf ?? "";
-                        if (entry.TafRaw != null && entry.TafRaw != nowTaf && nowTaf != "")
+                        if (entry.TafRaw != nowTaf && nowTaf != "")
                         {
                             entry.PrevTafRaw = entry.TafRaw;
                             entry.TafState   = EntryState.Yellow;
@@ -580,7 +606,7 @@ namespace WeatherPlugin.UI
                         entry.TafRaw = nowTaf;
 
                         var nowAtis = we.RawAtis ?? "";
-                        if (entry.AtisRaw != null && entry.AtisRaw != nowAtis && nowAtis != "")
+                        if (entry.AtisRaw != nowAtis && nowAtis != "")
                         {
                             entry.PrevAtisRaw = entry.AtisRaw;
                             entry.AtisState   = EntryState.Yellow;
@@ -600,13 +626,15 @@ namespace WeatherPlugin.UI
 
         private void TickCountdown()
         {
-            if (_entries.Count == 0) return;
-            var rm = _nextMetarRefresh - DateTime.UtcNow;
-            var rt = _nextTafRefresh   - DateTime.UtcNow;
-            if (rm < TimeSpan.Zero) rm = TimeSpan.Zero;
-            if (rt < TimeSpan.Zero) rt = TimeSpan.Zero;
-            SafeUi(() => _countdownLabel.Text =
-                $"M {rm.Minutes}:{rm.Seconds:D2}  T {rt.Minutes}:{rt.Seconds:D2}");
+            _flashOn = !_flashOn;
+
+            var rem = _nextRefresh - DateTime.UtcNow;
+            if (rem < TimeSpan.Zero) rem = TimeSpan.Zero;
+            if (_entries.Count > 0)
+                _countdownLabel.Text = $"Next: {(int)rem.TotalMinutes}:{rem.Seconds:D2}";
+
+            _stationList.Invalidate();
+            UpdateTabHighlight();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
@@ -639,8 +667,7 @@ namespace WeatherPlugin.UI
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            _metarTimer?.Dispose();
-            _tafTimer?.Dispose();
+            _refreshTimer?.Dispose();
             _countdownTimer?.Stop();
             base.OnFormClosed(e);
         }
