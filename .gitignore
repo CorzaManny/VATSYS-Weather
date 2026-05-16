@@ -1,0 +1,4 @@
+WeatherPlugin/obj/
+*.user
+.vs/
+.claude/

@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using vatsys;
+using WeatherPlugin.Models;
+
+namespace WeatherPlugin.Services
+{
+    public static class WeatherService
+    {
+        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private const string DisplayName = "AU Weather";
+
+        // AWC (Aviation Weather Center) bulk bbox covering Australia.
+        // bbox = minLat,minLon,maxLat,maxLon — confirmed returning full Australian data.
+        // BoM HTTP feeds (bom.gov.au/fwo/IDY*) have been dead/timing-out since ~2024;
+        // AWC is the reliable replacement for bulk Australian METAR/TAF.
+        private const string AwcMetarUrl =
+            "https://aviationweather.gov/api/data/metar?bbox=-44,112,-10,155&format=raw&hours=1";
+        private const string AwcTafUrl =
+            "https://aviationweather.gov/api/data/taf?bbox=-44,112,-10,155&format=raw&hours=12";
+
+        // VATSIM METAR — single-station on-demand (real-world data, no auth required)
+        private const string VatsimMetarBase = "https://metar.vatsim.net/metar.php?id=";
+
+        static WeatherService()
+        {
+            Http.DefaultRequestHeaders.Add("User-Agent", "vatSys-WeatherPlugin/1.0");
+        }
+
+        public static async Task FetchBulkAsync(WeatherCache cache)
+        {
+            await Task.WhenAll(FetchMetarsAsync(cache), FetchTafsAsync(cache));
+        }
+
+        private static async Task FetchMetarsAsync(WeatherCache cache)
+        {
+            try
+            {
+                var text = await Http.GetStringAsync(AwcMetarUrl);
+                ParseAndCacheMetars(text, cache, "AWC");
+            }
+            catch (Exception ex)
+            {
+                Errors.Add(new Exception("AU Weather: METAR fetch failed — " + ex.Message), DisplayName);
+            }
+        }
+
+        private static async Task FetchTafsAsync(WeatherCache cache)
+        {
+            try
+            {
+                var text = await Http.GetStringAsync(AwcTafUrl);
+                ParseAndCacheTafs(text, cache, "AWC");
+            }
+            catch (Exception ex)
+            {
+                Errors.Add(new Exception("AU Weather: TAF fetch failed — " + ex.Message), DisplayName);
+            }
+        }
+
+        // Single-station fetch: tries NAIPS first (if naips.cfg present), falls back to VATSIM + AWC.
+        public static async Task FetchStationAsync(string icao, WeatherCache cache)
+        {
+            icao = icao.ToUpper().Trim();
+
+            // ── Primary: NAIPS SOAP — always attempted when credentials are present ──
+            if (NaipsService.HasCredentials)
+            {
+                try
+                {
+                    var (metar, taf, atis) = await NaipsService.FetchAsync(icao, Http);
+                    if (metar != null) cache.SetMetar(icao, metar, "NAIPS");
+                    if (taf   != null) cache.SetTaf(icao, taf,   "NAIPS");
+                    if (atis  != null) cache.SetAtis(icao, atis,  "NAIPS");
+                    if (metar != null || taf != null || atis != null) return;
+                }
+                catch { }
+            }
+
+            // ── Fallback: VATSIM METAR + AWC TAF — only when cache is stale ────────
+            var entry       = cache.Get(icao);
+            bool metarStale = entry == null || entry.IsMetarStale(15);
+            bool tafStale   = entry == null || entry.IsTafStale(1);
+            if (!metarStale && !tafStale) return;
+
+            if (metarStale)
+            {
+                try
+                {
+                    var raw = await Http.GetStringAsync(VatsimMetarBase + icao);
+                    raw = raw.Trim();
+                    if (!string.IsNullOrEmpty(raw) && raw.Length > 10 && !raw.StartsWith("No"))
+                        cache.SetMetar(icao, raw, "VATSIM");
+                }
+                catch { }
+            }
+
+            if (tafStale)
+            {
+                try
+                {
+                    var url = $"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw&hours=12";
+                    var text = await Http.GetStringAsync(url);
+                    var tafs = ParseTafs(text);
+                    if (tafs.TryGetValue(icao, out var taf))
+                        cache.SetTaf(icao, taf, "AWC");
+                }
+                catch { }
+            }
+        }
+
+        // ── Parsers ──────────────────────────────────────────────────────────────
+
+        private static void ParseAndCacheMetars(string raw, WeatherCache cache, string source)
+        {
+            foreach (var kvp in ParseMetars(raw))
+            {
+                if (kvp.Value.StartsWith("SPECI "))
+                    cache.SetSpeci(kvp.Key, kvp.Value, source);
+                else
+                    cache.SetMetar(kvp.Key, kvp.Value, source);
+            }
+        }
+
+        private static void ParseAndCacheTafs(string raw, WeatherCache cache, string source)
+        {
+            foreach (var kvp in ParseTafs(raw))
+                cache.SetTaf(kvp.Key, kvp.Value, source);
+        }
+
+        private static Dictionary<string, string> ParseMetars(string raw)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in raw.Split('\n'))
+            {
+                var clean = line.Trim();
+                if (clean.Length < 8) continue;
+
+                // Strip optional METAR/SPECI prefix to extract ICAO, then keep original
+                var icaoPart = Regex.Replace(clean, @"^(METAR|SPECI)\s+", "");
+                if (icaoPart.Length < 4) continue;
+
+                var icao = icaoPart.Substring(0, 4).ToUpper();
+                if (!IsIcao(icao)) continue;
+
+                // AWC returns newest-first — keep only the first (latest) report per station
+                if (!result.ContainsKey(icao))
+                    result[icao] = clean;
+            }
+            return result;
+        }
+
+        public static Dictionary<string, string> ParseTafs(string raw)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var sb = new StringBuilder();
+            string currentIcao = null;
+
+            foreach (var rawLine in raw.Split('\n'))
+            {
+                var line = rawLine.TrimEnd();
+                var trimmed = line.TrimStart();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+                // New TAF starts when line begins with "TAF" (optionally "TAF AMD")
+                if (Regex.IsMatch(trimmed, @"^TAF(\s+AMD)?\s+[A-Z]{4}", RegexOptions.IgnoreCase))
+                {
+                    SaveCurrentTaf(result, currentIcao, sb);
+
+                    var afterTaf = Regex.Replace(trimmed, @"^TAF(\s+AMD)?\s+", "", RegexOptions.IgnoreCase);
+                    currentIcao = afterTaf.Length >= 4 ? afterTaf.Substring(0, 4).ToUpper() : null;
+                    sb.Clear();
+                    if (currentIcao != null)
+                        sb.AppendLine(trimmed);
+                }
+                else if (currentIcao != null)
+                {
+                    // Continuation line
+                    sb.AppendLine("  " + trimmed.TrimEnd('='));
+                }
+            }
+
+            SaveCurrentTaf(result, currentIcao, sb);
+            return result;
+        }
+
+        private static void SaveCurrentTaf(Dictionary<string, string> result, string icao, StringBuilder sb)
+        {
+            if (icao == null || sb.Length == 0) return;
+            var text = sb.ToString().TrimEnd().TrimEnd('=');
+            if (!string.IsNullOrWhiteSpace(text))
+                result[icao] = text;
+        }
+
+        private static bool IsIcao(string s) =>
+            s.Length == 4 && s.All(char.IsLetter);
+    }
+}
